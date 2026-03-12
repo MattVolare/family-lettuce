@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 import uuid
 from enum import Enum
 from typing import Any
@@ -255,10 +256,42 @@ class LettuceGame:
         self.phase = GamePhase.DEALING
         await self.deal_hand()
 
+    @staticmethod
+    def _is_protected_card(card: Card, round_type: RoundType) -> bool:
+        """Check if a card cannot be discarded for the given round type."""
+        if round_type == RoundType.HEARTS:
+            return card.is_heart
+        if round_type == RoundType.QUEENS:
+            return card.is_queen
+        if round_type == RoundType.KING_OF_SPADES:
+            return card.is_king_of_spades
+        if round_type == RoundType.EVERYTHING:
+            return card.is_heart or card.is_queen or card.is_king_of_spades
+        return False
+
     async def deal_hand(self) -> None:
         self.round_number += 1
         self.deck = Deck()
         hands, discard = self.deck.deal_with_discard(len(self.players))
+
+        # Determine round type early so we can enforce smart discard
+        round_type = ROUND_SEQUENCE[self.round_number - 1]
+
+        # Swap any scoring cards out of the discard pile
+        for i in range(len(discard)):
+            if self._is_protected_card(discard[i], round_type):
+                swapped = False
+                hand_indices = list(range(len(hands)))
+                random.shuffle(hand_indices)
+                for hi in hand_indices:
+                    for ci in range(len(hands[hi])):
+                        if not self._is_protected_card(hands[hi][ci], round_type):
+                            discard[i], hands[hi][ci] = hands[hi][ci], discard[i]
+                            swapped = True
+                            break
+                    if swapped:
+                        break
+
         self.discard_pile = discard
         self.cards_per_player = len(hands[0]) if hands else 0
 
@@ -266,7 +299,7 @@ class LettuceGame:
             player["hand"] = sorted(hands[i], key=lambda c: (c.suit, c.value))
 
         # Auto-select round based on fixed sequence
-        self.current_round_type = ROUND_SEQUENCE[self.round_number - 1]
+        self.current_round_type = round_type
 
         discard_info = [c.to_dict() for c in self.discard_pile]
         await self.broadcast({

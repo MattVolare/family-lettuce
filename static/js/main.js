@@ -24,6 +24,30 @@
     var fantanLayout = null;
     var reconnectTimer = null;
 
+    // Convert backend layout {suit: {low, high}} to array format {suit: [13 elements]}
+    var RANK_VALUES = {'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14};
+    var LAYOUT_RANK_ORDER = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+
+    function convertLayoutToArray(layout) {
+        if (!layout) return {};
+        var result = {};
+        for (var suit in layout) {
+            if (!layout.hasOwnProperty(suit)) continue;
+            var bounds = layout[suit];
+            var arr = new Array(13);
+            for (var i = 0; i < 13; i++) {
+                var val = RANK_VALUES[LAYOUT_RANK_ORDER[i]];
+                if (val >= bounds.low && val <= bounds.high) {
+                    arr[i] = LAYOUT_RANK_ORDER[i];
+                } else {
+                    arr[i] = null;
+                }
+            }
+            result[suit] = arr;
+        }
+        return result;
+    }
+
     // ---- Rejoin State (localStorage) ----
 
     function saveRejoinState() {
@@ -444,6 +468,9 @@
 
         showToast('Joined game!', 'success');
         saveRejoinState();
+
+        // Initiate video calls to other players in the game
+        window.videoManager.joinGame(players);
     }
 
     function handlePlayerJoined(data) {
@@ -458,6 +485,8 @@
         var joinedName = data.player || 'A player';
         if (joinedName !== playerName) {
             appendSystemChat(joinedName + ' joined the game');
+            // Call the new player for video
+            window.videoManager.joinGame(players);
         }
     }
 
@@ -652,7 +681,7 @@
 
     function handleFantanStarted(data) {
         currentPlayerIndex = data.first_player_index;
-        fantanLayout = data.layout || {};
+        fantanLayout = convertLayoutToArray(data.layout || {});
 
         els.trickArea.classList.add('hidden');
         els.fantanArea.classList.remove('hidden');
@@ -680,7 +709,7 @@
             renderHand();
         }
 
-        fantanLayout = data.layout;
+        fantanLayout = convertLayoutToArray(data.layout);
         renderFantanDisplay();
         renderOtherPlayers();
         updateSidebarScoreboard();
@@ -805,7 +834,7 @@
         if (currentRoundType) {
             showRoundBanner(currentRoundType);
             if (currentRoundType === 'fantan' && gs.layout) {
-                fantanLayout = gs.layout;
+                fantanLayout = convertLayoutToArray(gs.layout);
                 els.fantanArea.classList.remove('hidden');
                 els.trickArea.classList.add('hidden');
                 renderFantanDisplay();
@@ -838,7 +867,9 @@
         showToast('Reconnected to game!', 'success');
         appendSystemChat('You reconnected!');
 
-        window.videoManager.init(playerId).catch(function(err) {
+        window.videoManager.init(playerId).then(function() {
+            window.videoManager.joinGame(players);
+        }).catch(function(err) {
             console.warn('Video init failed:', err);
         });
     }
