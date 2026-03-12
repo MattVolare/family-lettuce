@@ -104,54 +104,96 @@ window.gameRenderer = (function () {
 
         const playableSet = new Set(playableCardKeys || []);
         const totalCards = cards.length;
+        const isMobile = window.innerWidth <= 768;
 
-        // Calculate overlap: more cards = tighter overlap
-        const maxWidth = container.clientWidth - 80;
-        const cardWidth = 65;
-        let overlap = Math.min(40, Math.max(20, (maxWidth - cardWidth) / Math.max(totalCards - 1, 1)));
-
-        // Create a wrapper for centering
+        // Create a wrapper
         const wrapper = document.createElement('div');
         wrapper.style.display = 'flex';
         wrapper.style.alignItems = 'flex-end';
-        wrapper.style.justifyContent = 'center';
         wrapper.style.position = 'relative';
-        wrapper.style.height = '120px';
 
-        cards.forEach((card, index) => {
-            const key = card.suit + ':' + card.rank;
-            const isPlayable = playableSet.has(key);
+        if (isMobile) {
+            // Mobile: horizontal scroll, no arc, generous tap targets
+            const cardWidth = 50; // mobile card width from CSS
+            const minVisible = 28; // minimum visible pixels per card for tapping
+            const overlap = Math.max(minVisible, Math.min(36, (container.clientWidth - cardWidth) / Math.max(totalCards - 1, 1)));
 
-            const cardEl = renderCard(card, {
-                playable: isPlayable,
-                dimmed: playableSet.size > 0 && !isPlayable
-            });
+            wrapper.style.justifyContent = 'flex-start';
+            wrapper.style.height = '80px';
+            // Set wrapper width so it can overflow for scrolling
+            const totalWidth = cardWidth + (totalCards - 1) * overlap;
+            wrapper.style.minWidth = totalWidth + 'px';
 
-            cardEl.classList.add('hand-card');
+            cards.forEach((card, index) => {
+                const key = card.suit + ':' + card.rank;
+                const isPlayable = playableSet.has(key);
 
-            // Fan positioning with slight arc
-            const centerIndex = (totalCards - 1) / 2;
-            const offset = index - centerIndex;
-            const rotation = offset * 1.5; // slight rotation for arc
-            const verticalOffset = Math.abs(offset) * 1.2; // slight arc curve
-
-            cardEl.style.position = 'relative';
-            cardEl.style.marginLeft = index === 0 ? '0' : '-' + (cardWidth - overlap) + 'px';
-            cardEl.style.transform = 'rotate(' + rotation + 'deg) translateY(' + verticalOffset + 'px)';
-            cardEl.style.zIndex = index;
-
-            if (isPlayable) {
-                cardEl.style.transform = 'rotate(' + rotation + 'deg) translateY(' + (verticalOffset - 8) + 'px)';
-                cardEl.addEventListener('click', function () {
-                    cardEl.classList.add('selected');
-                    setTimeout(function () {
-                        onCardClick(card.suit, card.rank);
-                    }, 150);
+                const cardEl = renderCard(card, {
+                    playable: isPlayable,
+                    dimmed: playableSet.size > 0 && !isPlayable
                 });
-            }
 
-            wrapper.appendChild(cardEl);
-        });
+                cardEl.classList.add('hand-card');
+                cardEl.style.position = 'relative';
+                cardEl.style.marginLeft = index === 0 ? '0' : '-' + (cardWidth - overlap) + 'px';
+                cardEl.style.transform = isPlayable ? 'translateY(-6px)' : 'none';
+                cardEl.style.zIndex = index;
+                cardEl.style.flexShrink = '0';
+
+                if (isPlayable) {
+                    cardEl.addEventListener('click', function () {
+                        cardEl.classList.add('selected');
+                        setTimeout(function () {
+                            onCardClick(card.suit, card.rank);
+                        }, 150);
+                    });
+                }
+
+                wrapper.appendChild(cardEl);
+            });
+        } else {
+            // Desktop: centered fan with arc
+            const maxWidth = container.clientWidth - 80;
+            const cardWidth = 65;
+            let overlap = Math.min(40, Math.max(20, (maxWidth - cardWidth) / Math.max(totalCards - 1, 1)));
+
+            wrapper.style.justifyContent = 'center';
+            wrapper.style.height = '120px';
+
+            cards.forEach((card, index) => {
+                const key = card.suit + ':' + card.rank;
+                const isPlayable = playableSet.has(key);
+
+                const cardEl = renderCard(card, {
+                    playable: isPlayable,
+                    dimmed: playableSet.size > 0 && !isPlayable
+                });
+
+                cardEl.classList.add('hand-card');
+
+                const centerIndex = (totalCards - 1) / 2;
+                const offset = index - centerIndex;
+                const rotation = offset * 1.5;
+                const verticalOffset = Math.abs(offset) * 1.2;
+
+                cardEl.style.position = 'relative';
+                cardEl.style.marginLeft = index === 0 ? '0' : '-' + (cardWidth - overlap) + 'px';
+                cardEl.style.transform = 'rotate(' + rotation + 'deg) translateY(' + verticalOffset + 'px)';
+                cardEl.style.zIndex = index;
+
+                if (isPlayable) {
+                    cardEl.style.transform = 'rotate(' + rotation + 'deg) translateY(' + (verticalOffset - 8) + 'px)';
+                    cardEl.addEventListener('click', function () {
+                        cardEl.classList.add('selected');
+                        setTimeout(function () {
+                            onCardClick(card.suit, card.rank);
+                        }, 150);
+                    });
+                }
+
+                wrapper.appendChild(cardEl);
+            });
+        }
 
         container.appendChild(wrapper);
     }
