@@ -113,16 +113,11 @@ window.gameRenderer = (function () {
         wrapper.style.position = 'relative';
 
         if (isMobile) {
-            // Mobile: horizontal scroll, no arc, generous tap targets
-            const cardWidth = 50; // mobile card width from CSS
-            const minVisible = 28; // minimum visible pixels per card for tapping
-            const overlap = Math.max(minVisible, Math.min(36, (container.clientWidth - cardWidth) / Math.max(totalCards - 1, 1)));
-
+            // Mobile: flat row, no overlap, scrollable horizontally
             wrapper.style.justifyContent = 'flex-start';
             wrapper.style.height = '80px';
-            // Set wrapper width so it can overflow for scrolling
-            const totalWidth = cardWidth + (totalCards - 1) * overlap;
-            wrapper.style.minWidth = totalWidth + 'px';
+            wrapper.style.gap = '4px';
+            wrapper.style.paddingRight = '12px';
 
             cards.forEach((card, index) => {
                 const key = card.suit + ':' + card.rank;
@@ -134,11 +129,8 @@ window.gameRenderer = (function () {
                 });
 
                 cardEl.classList.add('hand-card');
-                cardEl.style.position = 'relative';
-                cardEl.style.marginLeft = index === 0 ? '0' : '-' + (cardWidth - overlap) + 'px';
-                cardEl.style.transform = isPlayable ? 'translateY(-6px)' : 'none';
-                cardEl.style.zIndex = index;
                 cardEl.style.flexShrink = '0';
+                cardEl.style.transform = isPlayable ? 'translateY(-6px)' : 'none';
 
                 if (isPlayable) {
                     cardEl.addEventListener('click', function () {

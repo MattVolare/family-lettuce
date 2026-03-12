@@ -1920,8 +1920,8 @@ h1, h2, h3, h4, h5, h6 {
     }
 
     .card {
-        width: 50px;
-        height: 74px;
+        width: 56px;
+        height: 82px;
     }
 
     .card .card-rank {
@@ -1951,10 +1951,15 @@ h1, h2, h3, h4, h5, h6 {
     }
 
     .your-hand {
-        max-height: 90px;
+        max-height: 95px;
         overflow-x: auto;
-        overflow-y: visible;
+        overflow-y: hidden;
         -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+
+    .your-hand::-webkit-scrollbar {
+        display: none;
     }
 
     .your-details {
