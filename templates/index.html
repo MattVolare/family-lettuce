@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lettuce - Family Card Game Night</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+    <!-- LOGIN SCREEN -->
+    <div id="login-screen" class="screen active">
+        <div class="login-card">
+            <div class="login-logo">
+                <span class="leaf-accent">&#x1F33F;</span>
+                <h1 class="login-title">Lettuce</h1>
+                <span class="leaf-accent flip">&#x1F33F;</span>
+            </div>
+            <p class="login-subtitle">Family Card Game Night</p>
+            <div class="login-form">
+                <input type="text" id="player-name-input" class="text-input" placeholder="Your name" maxlength="20" autocomplete="off">
+                <button id="login-btn" class="btn btn-primary">Play</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- LOBBY SCREEN -->
+    <div id="lobby-screen" class="screen">
+        <header class="lobby-header">
+            <div class="lobby-header-left">
+                <h2 class="lobby-title">Lettuce</h2>
+                <span class="lobby-player-name" id="lobby-player-name"></span>
+            </div>
+            <button id="create-game-btn" class="btn btn-primary">Create Game</button>
+        </header>
+        <div class="lobby-content">
+            <h3 class="section-title">Open Games</h3>
+            <div id="game-list" class="game-list">
+                <div class="no-games" id="no-games-msg">
+                    <p>No games yet. Create one to get started!</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Create Game Modal -->
+        <div id="create-game-modal" class="modal-overlay hidden">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3>Create a New Game</h3>
+                    <button class="modal-close" id="close-create-modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <input type="text" id="game-name-input" class="text-input" placeholder="Game name" maxlength="30" autocomplete="off">
+                    <button id="submit-create-game" class="btn btn-primary" style="width:100%;margin-top:12px;">Create</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- GAME SCREEN -->
+    <div id="game-screen" class="screen">
+        <!-- Game Header -->
+        <header class="game-header">
+            <div class="game-header-left">
+                <h2 class="game-title" id="game-title">Game</h2>
+                <span class="round-badge" id="round-badge"></span>
+            </div>
+            <div class="game-header-right">
+                <button id="scores-btn" class="btn btn-small btn-outline">Scores</button>
+                <button id="leave-game-btn" class="btn btn-small btn-danger">Leave</button>
+            </div>
+        </header>
+
+        <div class="game-body">
+            <!-- Main game area -->
+            <div class="game-main">
+                <!-- Top area: other players -->
+                <div class="other-players-area" id="other-players-area"></div>
+
+                <!-- Center area -->
+                <div class="center-area" id="center-area">
+                    <!-- Waiting state -->
+                    <div id="waiting-message" class="waiting-message">
+                        <p>Waiting for players to join...</p>
+                        <p class="waiting-count" id="waiting-count"></p>
+                        <button id="start-game-btn" class="btn btn-primary btn-lg" style="display:none; margin-top: 16px;">Start Game</button>
+                    </div>
+
+                    <!-- Trick taking area -->
+                    <div id="trick-area" class="trick-area hidden"></div>
+
+                    <!-- Fantan layout area -->
+                    <div id="fantan-area" class="fantan-area hidden"></div>
+
+                    <!-- Discard pile (shown when deal isn't even) -->
+                    <div id="discard-area" class="discard-area hidden"></div>
+
+                    <!-- Turn indicator -->
+                    <div id="turn-indicator" class="turn-indicator hidden"></div>
+
+                    <!-- Round info banner -->
+                    <div id="round-banner" class="round-banner hidden"></div>
+
+                    <!-- Led suit indicator -->
+                    <div id="led-suit-indicator" class="led-suit-indicator hidden"></div>
+                </div>
+
+                <!-- Bottom area: your hand -->
+                <div class="your-area">
+                    <div class="your-info" id="your-info">
+                        <div class="your-video-feed" id="your-video-container"></div>
+                        <div class="your-details">
+                            <span class="your-name" id="your-name-display"></span>
+                            <span class="your-score" id="your-score-display">Score: 0</span>
+                        </div>
+                    </div>
+                    <div class="your-hand" id="your-hand"></div>
+                    <button id="pass-btn" class="btn btn-warning pass-btn hidden">Pass</button>
+                </div>
+            </div>
+
+            <!-- Right sidebar -->
+            <div class="game-sidebar">
+                <!-- Mini scoreboard -->
+                <div class="sidebar-section">
+                    <h4 class="sidebar-title">Scores</h4>
+                    <div id="sidebar-scoreboard" class="sidebar-scoreboard"></div>
+                </div>
+
+                <!-- Video feeds -->
+                <div class="sidebar-section">
+                    <h4 class="sidebar-title">Video</h4>
+                    <div id="video-feeds" class="video-feeds">
+                        <div class="video-controls" id="video-controls">
+                            <button id="toggle-mute-btn" class="btn btn-small btn-outline" title="Toggle Mute">Mute</button>
+                            <button id="toggle-camera-btn" class="btn btn-small btn-outline" title="Toggle Camera">Cam</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chat -->
+                <div class="sidebar-section sidebar-chat">
+                    <h4 class="sidebar-title">Chat</h4>
+                    <div id="chat-messages" class="chat-messages"></div>
+                    <div class="chat-input-area">
+                        <input type="text" id="chat-input" class="text-input chat-text-input" placeholder="Say something..." maxlength="200" autocomplete="off">
+                        <button id="chat-send-btn" class="btn btn-small btn-primary">Send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Round Selection Overlay -->
+        <div id="round-selection-overlay" class="overlay hidden">
+            <div class="round-selection-container">
+                <h2 class="round-selection-title">Choose the Round</h2>
+                <p class="round-selection-subtitle">You're the dealer! Pick a round type:</p>
+                <div id="round-choices" class="round-choices"></div>
+            </div>
+        </div>
+
+        <!-- Dealer Choosing Overlay -->
+        <div id="dealer-choosing-overlay" class="overlay hidden">
+            <div class="dealer-choosing-message">
+                <div class="spinner"></div>
+                <p id="dealer-choosing-text">The dealer is choosing a round...</p>
+            </div>
+        </div>
+
+        <!-- Scoreboard Modal -->
+        <div id="scoreboard-modal" class="modal-overlay hidden">
+            <div class="modal modal-large">
+                <div class="modal-header">
+                    <h3>Scoreboard</h3>
+                    <button class="modal-close" id="close-scoreboard-modal">&times;</button>
+                </div>
+                <div class="modal-body" id="scoreboard-modal-body"></div>
+            </div>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="game-over-overlay" class="overlay hidden">
+            <div id="game-over-content" class="game-over-content"></div>
+        </div>
+
+        <!-- Round Result Overlay -->
+        <div id="round-result-overlay" class="overlay hidden">
+            <div class="round-result-container" id="round-result-content"></div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Confetti Container -->
+    <div id="confetti-container" class="confetti-container hidden"></div>
+
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <script src="/static/js/video.js"></script>
+    <script src="/static/js/game.js"></script>
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
