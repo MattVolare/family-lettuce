@@ -1796,3 +1796,212 @@ h1, h2, h3, h4, h5, h6 {
         height: 55px;
     }
 }
+
+.sidebar-toggle {
+    display: none;
+}
+
+/* ============================================
+   MOBILE (<768px)
+   ============================================ */
+@media (max-width: 768px) {
+    .game-body {
+        flex-direction: column;
+    }
+
+    .sidebar-toggle {
+        display: inline-block;
+    }
+
+    .game-sidebar {
+        display: none;
+        width: 100%;
+        max-height: 40vh;
+        overflow-y: auto;
+        border-left: none;
+        border-top: 1px solid rgba(139, 115, 85, 0.2);
+    }
+
+    .game-sidebar.open {
+        display: flex;
+    }
+
+    .sidebar-section {
+        padding: 8px 12px;
+    }
+
+    .sidebar-chat {
+        max-height: 120px;
+    }
+
+    .chat-messages {
+        max-height: 80px;
+    }
+
+    .game-main {
+        flex: 1;
+        min-height: 0;
+    }
+
+    .game-header {
+        padding: 6px 12px;
+        gap: 8px;
+    }
+
+    .game-title {
+        font-size: 16px;
+    }
+
+    .game-header-right {
+        gap: 4px;
+    }
+
+    .game-header-right .btn {
+        padding: 4px 8px;
+        font-size: 11px;
+    }
+
+    .other-players-area {
+        gap: 6px;
+        padding: 6px 8px;
+        flex-wrap: wrap;
+    }
+
+    .player-slot {
+        min-width: 70px;
+        padding: 4px 6px;
+    }
+
+    .player-avatar {
+        width: 32px;
+        height: 32px;
+        font-size: 14px;
+    }
+
+    .player-name {
+        font-size: 10px;
+    }
+
+    .player-score {
+        font-size: 9px;
+    }
+
+    .player-card-backs {
+        display: none;
+    }
+
+    .center-area {
+        min-height: 140px;
+        padding: 4px;
+    }
+
+    .turn-indicator {
+        font-size: 14px;
+        padding: 6px 14px;
+    }
+
+    .turn-indicator.your-turn {
+        font-size: 18px;
+    }
+
+    .round-banner {
+        font-size: 12px;
+        padding: 4px 12px;
+    }
+
+    .trick-area {
+        width: 240px;
+        height: 180px;
+    }
+
+    .card {
+        width: 50px;
+        height: 74px;
+    }
+
+    .card .card-rank {
+        font-size: 10px;
+    }
+
+    .card .card-suit-small {
+        font-size: 8px;
+    }
+
+    .card .card-center-suit {
+        font-size: 20px;
+    }
+
+    .your-area {
+        padding: 4px 8px;
+    }
+
+    .your-hand {
+        max-height: 90px;
+        overflow: visible;
+    }
+
+    .your-details {
+        gap: 4px;
+    }
+
+    .your-name {
+        font-size: 12px;
+    }
+
+    .your-score {
+        font-size: 11px;
+    }
+
+    .discard-area {
+        padding: 4px 8px;
+    }
+
+    .discard-area .card {
+        transform: scale(0.45);
+        margin: -16px -10px;
+    }
+
+    /* Round selection overlay */
+    .round-selection-container {
+        padding: 16px;
+    }
+
+    .round-choices {
+        gap: 8px;
+    }
+
+    .round-choice-card {
+        width: 90px;
+        padding: 10px 6px;
+    }
+
+    .round-choice-icon {
+        font-size: 22px;
+    }
+
+    .round-choice-name {
+        font-size: 11px;
+    }
+
+    .round-choice-desc {
+        font-size: 9px;
+    }
+
+    /* Fantan */
+    .fantan-cell {
+        width: 28px;
+        height: 40px;
+        font-size: 9px;
+    }
+
+    .fantan-suit-label {
+        font-size: 14px;
+        width: 20px;
+    }
+
+    /* Modals */
+    .modal {
+        width: 90vw;
+        max-width: 90vw;
+    }
+}

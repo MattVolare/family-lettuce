@@ -74,6 +74,8 @@
         els.toggleCameraBtn = document.getElementById('toggle-camera-btn');
         els.turnIndicator = document.getElementById('turn-indicator');
         els.discardArea = document.getElementById('discard-area');
+        els.sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
+        els.gameSidebar = document.querySelector('.game-sidebar');
     }
 
     // ---- Screen Management ----
@@ -1122,6 +1124,15 @@
         els.chatInput.addEventListener('keydown', function (e) {
             if (e.key === 'Enter') sendChat(els.chatInput.value);
         });
+
+        // Sidebar toggle (mobile)
+        if (els.sidebarToggleBtn) {
+            els.sidebarToggleBtn.addEventListener('click', function () {
+                if (els.gameSidebar) {
+                    els.gameSidebar.classList.toggle('open');
+                }
+            });
+        }
 
         // Video controls
         if (els.toggleMuteBtn) {
