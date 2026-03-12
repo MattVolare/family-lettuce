@@ -85,6 +85,10 @@ class LettuceGame:
         self.cards_per_player: int = 0
         self.fantan_consecutive_passes: int = 0
 
+        # Pause/reconnect state
+        self._resume_event: asyncio.Event = asyncio.Event()
+        self._resume_event.set()  # not paused initially
+
     # ------------------------------------------------------------------ #
     #  LOBBY / SETUP                                                      #
     # ------------------------------------------------------------------ #
@@ -102,6 +106,7 @@ class LettuceGame:
             "ws": ws,
             "hand": [],
             "score": 0,
+            "disconnected": False,
         }
         self.players.append(player)
         if len(self.players) == 1:
@@ -122,6 +127,73 @@ class LettuceGame:
             if p["id"] == player_id:
                 return i
         return None
+
+    def find_disconnected_player(self, name: str) -> str | None:
+        """Find a disconnected player by name and return their ID."""
+        for p in self.players:
+            if p["name"] == name and p.get("disconnected"):
+                return p["id"]
+        return None
+
+    def disconnect_player(self, player_id: str) -> bool:
+        """Mark a player as disconnected and pause the game."""
+        idx = self.get_player_index(player_id)
+        if idx is None:
+            return False
+        self.players[idx]["disconnected"] = True
+        self.players[idx]["ws"] = None
+        self._resume_event.clear()
+        return True
+
+    async def reconnect_player(self, player_id: str, ws: Any) -> bool:
+        """Reconnect a player and resume the game."""
+        idx = self.get_player_index(player_id)
+        if idx is None:
+            return False
+        self.players[idx]["disconnected"] = False
+        self.players[idx]["ws"] = ws
+
+        # Send them their hand
+        await self.send_to(idx, {
+            "action": "your_hand",
+            "hand": [c.to_dict() for c in self.players[idx]["hand"]],
+        })
+
+        # Unpause if no one else is disconnected
+        if not any(p.get("disconnected") for p in self.players):
+            self._resume_event.set()
+
+            # Broadcast resume
+            await self.broadcast({
+                "action": "game_resumed",
+                "player": self.players[idx]["name"],
+                "game_state": self.get_game_state(),
+            })
+
+            # If it's their turn, re-send your_turn
+            if self.phase == GamePhase.PLAYING and idx == self.current_player_index:
+                await self._broadcast_turn()
+                if self.current_round_type == RoundType.FANTAN:
+                    playable = self.get_fantan_playable(idx)
+                    await self.send_to(idx, {
+                        "action": "your_turn",
+                        "playable_cards": [c.to_dict() for c in playable],
+                        "can_pass": len(playable) == 0,
+                        "is_fantan": True,
+                    })
+                else:
+                    playable = self.get_playable_cards(idx)
+                    await self.send_to(idx, {
+                        "action": "your_turn",
+                        "playable_cards": [c.to_dict() for c in playable],
+                        "trick_number": self.trick_number,
+                    })
+
+        return True
+
+    async def _wait_for_unpause(self) -> None:
+        """Block until no players are disconnected."""
+        await self._resume_event.wait()
 
     # ------------------------------------------------------------------ #
     #  START GAME -> DRAW FOR DEALER                                      #
@@ -326,6 +398,9 @@ class LettuceGame:
         idx = self.get_player_index(player_id)
         if idx is None:
             return
+        if not self._resume_event.is_set():
+            await self.send_to_id(player_id, {"action": "error", "message": "Game is paused — waiting for a player to reconnect"})
+            return
         if self.phase != GamePhase.PLAYING:
             await self.send_to_id(player_id, {"action": "error", "message": "Not in playing phase"})
             return
@@ -430,6 +505,7 @@ class LettuceGame:
 
     async def resolve_trick(self) -> None:
         """Determine trick winner: highest card of led suit."""
+        await self._wait_for_unpause()
         led = self.current_trick[0][1].suit
         best_idx = self.current_trick[0][0]
         best_value = self.current_trick[0][1].value
@@ -550,9 +626,9 @@ class LettuceGame:
             "round_history": self.round_history,
         })
 
-        # Wait for players to see results (frontend has a continue button)
-        # The next round is triggered by end_round which is called after a delay
+        # Wait for players to see results, then advance
         await asyncio.sleep(3)
+        await self._wait_for_unpause()
         await self.end_round()
 
     # ------------------------------------------------------------------ #
@@ -699,6 +775,9 @@ class LettuceGame:
         idx = self.get_player_index(player_id)
         if idx is None:
             return
+        if not self._resume_event.is_set():
+            await self.send_to_id(player_id, {"action": "error", "message": "Game is paused"})
+            return
         if idx != self.current_player_index:
             await self.send_to_id(player_id, {"action": "error", "message": "Not your turn"})
             return
@@ -806,6 +885,7 @@ class LettuceGame:
         })
 
         await asyncio.sleep(3)
+        await self._wait_for_unpause()
         await self.end_round()
 
     def _generate_fantan_scores(self, n: int) -> list[int]:
@@ -854,6 +934,7 @@ class LettuceGame:
         })
 
         await asyncio.sleep(1)
+        await self._wait_for_unpause()
         await self.deal_hand()
 
     async def game_over(self) -> None:
@@ -925,6 +1006,7 @@ class LettuceGame:
                 "id": p["id"],
                 "score": p["score"],
                 "cards_in_hand": len(p["hand"]),
+                "disconnected": p.get("disconnected", False),
             }
             if for_player_id and p["id"] == for_player_id:
                 pd["hand"] = [c.to_dict() for c in p["hand"]]
@@ -945,6 +1027,7 @@ class LettuceGame:
             "hearts_broken": self.hearts_broken,
             "discard_pile": [c.to_dict() for c in self.discard_pile],
             "round_history": self.round_history,
+            "paused": not self._resume_event.is_set(),
         }
 
         if self.current_round_type == RoundType.FANTAN:

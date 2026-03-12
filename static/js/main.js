@@ -24,6 +24,30 @@
     var fantanLayout = null;
     var reconnectTimer = null;
 
+    // ---- Rejoin State (localStorage) ----
+
+    function saveRejoinState() {
+        if (currentGameId && playerName) {
+            localStorage.setItem('lettuce_rejoin', JSON.stringify({
+                gameId: currentGameId,
+                name: playerName
+            }));
+        }
+    }
+
+    function clearRejoinState() {
+        localStorage.removeItem('lettuce_rejoin');
+    }
+
+    function getRejoinState() {
+        try {
+            var data = localStorage.getItem('lettuce_rejoin');
+            return data ? JSON.parse(data) : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
     // ---- DOM refs ----
     var els = {};
 
@@ -247,6 +271,18 @@
             case 'game_over':
                 handleGameOver(data);
                 break;
+            case 'rejoined':
+                handleRejoined(data);
+                break;
+            case 'game_paused':
+                handleGamePaused(data);
+                break;
+            case 'game_resumed':
+                handleGameResumed(data);
+                break;
+            case 'game_state':
+                handleGameState(data);
+                break;
             case 'chat':
                 handleChatMessage(data);
                 break;
@@ -357,6 +393,7 @@
         updateSidebarScoreboard();
         updateStartButton();
         clearChat();
+        saveRejoinState();
     }
 
     function handleGameJoined(data) {
@@ -385,6 +422,7 @@
         updateStartButton();
 
         showToast('Joined game!', 'success');
+        saveRejoinState();
     }
 
     function handlePlayerJoined(data) {
@@ -417,6 +455,7 @@
 
     function handleLeftGame(data) {
         // We left the game, go back to lobby
+        clearRejoinState();
         resetGameState();
         showScreen('lobby-screen');
         renderGameList(data.games || []);
@@ -704,6 +743,7 @@
 
         els.gameOverOverlay.classList.remove('hidden');
         window.gameRenderer.renderGameOver(players, winner);
+        clearRejoinState();
     }
 
     function handleChatMessage(data) {
@@ -712,6 +752,117 @@
 
     function handleSignal(data) {
         // PeerJS handles signaling internally
+    }
+
+    function handleRejoined(data) {
+        playerId = data.player_id;
+        playerName = data.name;
+        currentGameId = data.game_id;
+
+        var gs = data.game_state || {};
+        gameState = gs.phase || 'playing';
+        players = gs.players || [];
+        dealerIndex = gs.dealer_index || -1;
+        currentPlayerIndex = gs.current_player_index || -1;
+        roundHistory = gs.round_history || [];
+        currentRoundType = gs.current_round_type || null;
+
+        els.lobbyPlayerName.textContent = playerName;
+        els.yourNameDisplay.textContent = playerName;
+        els.gameTitle.textContent = gs.name || 'Game';
+
+        showScreen('game-screen');
+        els.waitingMessage.classList.add('hidden');
+
+        // Restore hand if provided
+        var me = (gs.players || []).find(function(p) { return p.id === playerId; });
+        if (me && me.hand) {
+            myHand = me.hand;
+        }
+
+        // Restore round display
+        if (currentRoundType) {
+            showRoundBanner(currentRoundType);
+            if (currentRoundType === 'fantan' && gs.layout) {
+                fantanLayout = gs.layout;
+                els.fantanArea.classList.remove('hidden');
+                els.trickArea.classList.add('hidden');
+                renderFantanDisplay();
+            } else {
+                els.trickArea.classList.remove('hidden');
+                els.fantanArea.classList.add('hidden');
+            }
+        }
+
+        renderOtherPlayers();
+        renderHand();
+        updateSidebarScoreboard();
+        updateTurnIndicator();
+        renderDiscardPile(gs.discard_pile || []);
+
+        // Restore current trick display
+        if (gs.current_trick) {
+            trickCards = gs.current_trick.map(function(tc) {
+                return {
+                    player_name: tc.player,
+                    suit: tc.card.suit,
+                    rank: tc.card.rank
+                };
+            });
+            window.gameRenderer.renderTrick(trickCards, players, els.trickArea);
+        }
+
+        hidePauseOverlay();
+        saveRejoinState();
+        showToast('Reconnected to game!', 'success');
+        appendSystemChat('You reconnected!');
+
+        window.videoManager.init(playerId).catch(function(err) {
+            console.warn('Video init failed:', err);
+        });
+    }
+
+    function handleGamePaused(data) {
+        showToast(data.message || 'Game paused', 'warning');
+        appendSystemChat(data.message || 'Game paused — waiting for player to reconnect');
+        showPauseOverlay(data.player || 'A player');
+    }
+
+    function handleGameResumed(data) {
+        showToast((data.player || 'Player') + ' reconnected!', 'success');
+        appendSystemChat((data.player || 'Player') + ' reconnected! Game resumed.');
+        hidePauseOverlay();
+
+        if (data.game_state) {
+            players = data.game_state.players || players;
+            currentPlayerIndex = data.game_state.current_player_index;
+            renderOtherPlayers();
+            updateSidebarScoreboard();
+            updateTurnIndicator();
+        }
+    }
+
+    function handleGameState(data) {
+        // Full state sync (used on reconnect)
+        var gs = data.game_state || {};
+        players = gs.players || players;
+        dealerIndex = gs.dealer_index || dealerIndex;
+        currentPlayerIndex = gs.current_player_index || currentPlayerIndex;
+        renderOtherPlayers();
+        updateSidebarScoreboard();
+        updateTurnIndicator();
+    }
+
+    function showPauseOverlay(disconnectedPlayer) {
+        var overlay = document.getElementById('game-paused-overlay');
+        var msg = document.getElementById('pause-message');
+        if (overlay) overlay.classList.remove('hidden');
+        if (msg) msg.textContent = 'Waiting for ' + disconnectedPlayer + ' to reconnect...';
+    }
+
+    function hidePauseOverlay() {
+        var overlay = document.getElementById('game-paused-overlay');
+        if (overlay) overlay.classList.add('hidden');
     }
 
     // ---- Turn Indicator ----
@@ -884,6 +1035,7 @@
     }
 
     function leaveGame() {
+        clearRejoinState();
         sendMessage({
             action: 'leave_game',
             game_id: currentGameId
@@ -1052,10 +1204,12 @@
             var waitForOpen = setInterval(function () {
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     clearInterval(waitForOpen);
-                    sendMessage({
-                        action: 'login',
-                        name: playerName
-                    });
+                    var loginData = { action: 'login', name: playerName };
+                    var rejoinState = getRejoinState();
+                    if (rejoinState && rejoinState.name === playerName && rejoinState.gameId) {
+                        loginData.rejoin_game_id = rejoinState.gameId;
+                    }
+                    sendMessage(loginData);
                 }
             }, 100);
         });

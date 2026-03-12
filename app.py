@@ -89,19 +89,43 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 if not name:
                     await send_json(ws, {"action": "error", "message": "Name is required"})
                     continue
-                player_id = str(uuid.uuid4())
-                player_sessions[player_id] = {
-                    "id": player_id,
-                    "name": name,
-                    "ws": ws,
-                    "game_id": None,
-                }
-                await send_json(ws, {
-                    "action": "logged_in",
-                    "player_id": player_id,
-                    "name": name,
-                    "games": get_game_list(),
-                })
+
+                # Check for rejoin: player reconnecting to an active game
+                rejoin_game_id = data.get("rejoin_game_id")
+                rejoined = False
+
+                if rejoin_game_id and rejoin_game_id in games:
+                    game = games[rejoin_game_id]
+                    old_player_id = game.find_disconnected_player(name)
+                    if old_player_id and old_player_id in player_sessions:
+                        # Rejoin existing game
+                        player_id = old_player_id
+                        player_sessions[player_id]["ws"] = ws
+                        await game.reconnect_player(player_id, ws)
+
+                        await send_json(ws, {
+                            "action": "rejoined",
+                            "player_id": player_id,
+                            "name": name,
+                            "game_id": rejoin_game_id,
+                            "game_state": game.get_game_state(for_player_id=player_id),
+                        })
+                        rejoined = True
+
+                if not rejoined:
+                    player_id = str(uuid.uuid4())
+                    player_sessions[player_id] = {
+                        "id": player_id,
+                        "name": name,
+                        "ws": ws,
+                        "game_id": None,
+                    }
+                    await send_json(ws, {
+                        "action": "logged_in",
+                        "player_id": player_id,
+                        "name": name,
+                        "games": get_game_list(),
+                    })
                 continue
 
             # All further actions require login
@@ -284,23 +308,42 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             game_id = session.get("game_id")
             if game_id and game_id in games:
                 game = games[game_id]
-                game.remove_player(player_id)
-                if game.players:
+
+                # Mid-game disconnect: pause and keep player for rejoin
+                if game.phase in (GamePhase.PLAYING, GamePhase.DEALING, GamePhase.DRAW_FOR_DEALER, GamePhase.ROUND_OVER):
+                    game.disconnect_player(player_id)
+                    session["ws"] = None
                     try:
                         await game.broadcast({
-                            "action": "player_left",
+                            "action": "game_paused",
                             "player": session.get("name", "Unknown"),
+                            "message": session.get("name", "A player") + " disconnected. Waiting for them to rejoin...",
                             "game_state": game.get_game_state(),
                         })
                     except Exception:
                         pass
+                    # Don't delete session — player may rejoin
                 else:
-                    del games[game_id]
-                try:
-                    await broadcast_game_list()
-                except Exception:
-                    pass
-            del player_sessions[player_id]
+                    # Lobby disconnect: remove normally
+                    game.remove_player(player_id)
+                    if game.players:
+                        try:
+                            await game.broadcast({
+                                "action": "player_left",
+                                "player": session.get("name", "Unknown"),
+                                "game_state": game.get_game_state(),
+                            })
+                        except Exception:
+                            pass
+                    else:
+                        del games[game_id]
+                    try:
+                        await broadcast_game_list()
+                    except Exception:
+                        pass
+                    del player_sessions[player_id]
+            else:
+                del player_sessions[player_id]
 
 
 # ---------------------------------------------------------------------------

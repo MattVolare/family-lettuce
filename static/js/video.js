@@ -23,13 +23,31 @@ class VideoManager {
     async init(playerId) {
         if (this.initialized) return;
 
-        try {
-            this.localStream = await navigator.mediaDevices.getUserMedia({
-                video: { width: 320, height: 240, facingMode: 'user' },
-                audio: true
-            });
-        } catch (err) {
-            console.warn('Could not access camera/microphone:', err.message);
+        // Check if getUserMedia is available (requires HTTPS in most browsers)
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            try {
+                this.localStream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 320 },
+                        height: { ideal: 240 },
+                        facingMode: 'user'
+                    },
+                    audio: true
+                });
+            } catch (err) {
+                console.warn('Camera access failed, trying audio only:', err.message);
+                try {
+                    this.localStream = await navigator.mediaDevices.getUserMedia({
+                        video: false,
+                        audio: true
+                    });
+                } catch (err2) {
+                    console.warn('Audio access also failed:', err2.message);
+                    this.localStream = null;
+                }
+            }
+        } else {
+            console.warn('getUserMedia not available (requires HTTPS)');
             this.localStream = null;
         }
 
@@ -89,7 +107,9 @@ class VideoManager {
         video.autoplay = true;
         video.muted = true; // mute local playback
         video.playsInline = true;
+        video.setAttribute('playsinline', '');
         container.appendChild(video);
+        video.play().catch(function() {});
     }
 
     /**
@@ -171,6 +191,7 @@ class VideoManager {
         video.srcObject = stream;
         video.autoplay = true;
         video.playsInline = true;
+        video.setAttribute('playsinline', '');
 
         const nameOverlay = document.createElement('div');
         nameOverlay.className = 'video-name-overlay';
@@ -179,6 +200,7 @@ class VideoManager {
         item.appendChild(video);
         item.appendChild(nameOverlay);
         feedsContainer.appendChild(item);
+        video.play().catch(function() {});
 
         // Also add thumbnail to player slot if exists
         this.addPlayerThumbnail(peerId, stream);
@@ -198,8 +220,10 @@ class VideoManager {
         video.srcObject = stream;
         video.autoplay = true;
         video.playsInline = true;
+        video.setAttribute('playsinline', '');
         video.muted = true;
         thumbContainer.appendChild(video);
+        video.play().catch(function() {});
     }
 
     /**
