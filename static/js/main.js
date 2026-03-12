@@ -141,6 +141,15 @@
 
     // ---- WebSocket ----
     function connectWebSocket() {
+        // Close any existing WebSocket before creating a new one
+        if (ws) {
+            try {
+                ws.onclose = null; // Prevent auto-reconnect from old socket
+                ws.close();
+            } catch (e) {}
+            ws = null;
+        }
+
         var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         var wsUrl = protocol + '//' + window.location.host + '/ws';
 
@@ -151,6 +160,16 @@
             if (reconnectTimer) {
                 clearTimeout(reconnectTimer);
                 reconnectTimer = null;
+            }
+
+            // Auto re-login on reconnect if we already have a player name
+            if (playerName && !playerId) {
+                var loginData = { action: 'login', name: playerName };
+                var rejoinState = getRejoinState();
+                if (rejoinState && rejoinState.name === playerName && rejoinState.gameId) {
+                    loginData.rejoin_game_id = rejoinState.gameId;
+                }
+                sendMessage(loginData);
             }
         };
 
@@ -165,6 +184,8 @@
 
         ws.onclose = function () {
             console.log('WebSocket closed');
+            // Clear playerId so reconnect knows to re-login
+            playerId = null;
             reconnectTimer = setTimeout(function () {
                 console.log('Attempting reconnect...');
                 connectWebSocket();
@@ -1036,6 +1057,7 @@
 
     function leaveGame() {
         clearRejoinState();
+        var savedPlayerId = playerId;
         sendMessage({
             action: 'leave_game',
             game_id: currentGameId
@@ -1044,9 +1066,14 @@
         window.videoManager.disconnectAll();
         resetGameState();
         showScreen('lobby-screen');
+
+        // Request game list only after server confirms (handled in handleLeftGame),
+        // but also request now in case the left_game response is delayed
         sendMessage({ action: 'get_game_list' });
 
-        window.videoManager.init(playerId).catch(function () {});
+        if (savedPlayerId) {
+            window.videoManager.init(savedPlayerId).catch(function () {});
+        }
     }
 
     window.returnToLobby = function () {

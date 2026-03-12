@@ -189,17 +189,44 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 game_id = session.get("game_id")
                 if game_id and game_id in games:
                     game = games[game_id]
+
+                    # If mid-game, mark player as disconnected first to unpause
+                    # if they were the one causing the pause, then remove
+                    was_disconnected = any(
+                        p["id"] == player_id and p.get("disconnected")
+                        for p in game.players
+                    )
+                    if was_disconnected:
+                        # Reconnect briefly to clear the disconnect state
+                        # so the resume event can be re-evaluated
+                        for p in game.players:
+                            if p["id"] == player_id:
+                                p["disconnected"] = False
+                                break
+
                     game.remove_player(player_id)
                     session["game_id"] = None
-                    await game.broadcast({
-                        "action": "player_left",
-                        "player": session["name"],
-                        "game_state": game.get_game_state(),
-                    })
-                    # Remove empty games
-                    if not game.players:
+
+                    if game.players:
+                        # Re-evaluate pause state after removing the player
+                        if not any(p.get("disconnected") for p in game.players):
+                            game._resume_event.set()
+
+                        await game.broadcast({
+                            "action": "player_left",
+                            "player": session["name"],
+                            "game_state": game.get_game_state(),
+                        })
+                    else:
                         del games[game_id]
+
                     await broadcast_game_list()
+                    await send_json(ws, {
+                        "action": "left_game",
+                        "games": get_game_list(),
+                    })
+                else:
+                    # Not in a game, just confirm
                     await send_json(ws, {
                         "action": "left_game",
                         "games": get_game_list(),

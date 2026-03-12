@@ -117,6 +117,7 @@ window.gameRenderer = (function () {
             wrapper.style.justifyContent = 'flex-start';
             wrapper.style.height = '80px';
             wrapper.style.gap = '4px';
+            wrapper.style.paddingLeft = '12px';
             wrapper.style.paddingRight = '12px';
 
             cards.forEach((card, index) => {
