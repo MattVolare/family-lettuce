@@ -25,8 +25,9 @@
     var reconnectTimer = null;
 
     // Convert backend layout {suit: {low, high}} to array format {suit: [13 elements]}
-    var RANK_VALUES = {'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14};
-    var LAYOUT_RANK_ORDER = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+    // Fantan uses aces-low: A=1, 2=2, ..., K=13
+    var RANK_VALUES = {'A':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13};
+    var LAYOUT_RANK_ORDER = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
 
     function convertLayoutToArray(layout) {
         if (!layout) return {};
@@ -48,27 +49,37 @@
         return result;
     }
 
-    // ---- Rejoin State (localStorage) ----
+    // ---- Session State (localStorage) ----
+    var rejoinCode = null;
 
-    function saveRejoinState() {
-        if (currentGameId && playerName) {
-            localStorage.setItem('lettuce_rejoin', JSON.stringify({
+    function saveSessionState() {
+        if (currentGameId && playerName && playerId) {
+            localStorage.setItem('lettuce_session', JSON.stringify({
                 gameId: currentGameId,
+                playerId: playerId,
                 name: playerName
             }));
         }
     }
 
-    function clearRejoinState() {
-        localStorage.removeItem('lettuce_rejoin');
+    function clearSessionState() {
+        localStorage.removeItem('lettuce_session');
     }
 
-    function getRejoinState() {
+    function getSessionState() {
         try {
-            var data = localStorage.getItem('lettuce_rejoin');
+            var data = localStorage.getItem('lettuce_session');
             return data ? JSON.parse(data) : null;
         } catch (e) {
             return null;
+        }
+    }
+
+    // Legacy migration
+    function migrateLegacyState() {
+        var old = localStorage.getItem('lettuce_rejoin');
+        if (old) {
+            localStorage.removeItem('lettuce_rejoin');
         }
     }
 
@@ -124,6 +135,8 @@
         els.discardArea = document.getElementById('discard-area');
         els.sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
         els.gameSidebar = document.querySelector('.game-sidebar');
+        els.rejoinBtn = document.getElementById('rejoin-btn');
+        els.rejoinCodeInput = document.getElementById('rejoin-code-input');
     }
 
     // ---- Screen Management ----
@@ -186,14 +199,17 @@
                 reconnectTimer = null;
             }
 
-            // Auto re-login on reconnect if we already have a player name
-            if (playerName && !playerId) {
-                var loginData = { action: 'login', name: playerName };
-                var rejoinState = getRejoinState();
-                if (rejoinState && rejoinState.name === playerName && rejoinState.gameId) {
-                    loginData.rejoin_game_id = rejoinState.gameId;
-                }
-                sendMessage(loginData);
+            // Try token-based reconnect first
+            var session = getSessionState();
+            if (session && session.playerId && session.gameId) {
+                sendMessage({
+                    action: 'reconnect',
+                    player_id: session.playerId,
+                    game_id: session.gameId
+                });
+            } else if (playerName) {
+                // No saved session but we have a name — fresh login
+                sendMessage({ action: 'login', name: playerName });
             }
         };
 
@@ -237,6 +253,9 @@
         switch (action) {
             case 'logged_in':
                 handleLoggedIn(data);
+                break;
+            case 'reconnect_failed':
+                handleReconnectFailed(data);
                 break;
             case 'game_list':
                 handleGameList(data);
@@ -367,6 +386,7 @@
     function handleLoggedIn(data) {
         playerId = data.player_id || data.id;
         playerName = data.name || playerName;
+        rejoinCode = data.rejoin_code || null;
 
         els.lobbyPlayerName.textContent = playerName;
         els.yourNameDisplay.textContent = playerName;
@@ -379,6 +399,15 @@
 
         sendMessage({ action: 'get_game_list' });
         showToast('Welcome, ' + playerName + '!', 'success');
+    }
+
+    function handleReconnectFailed(data) {
+        // Token expired — clear stale session and show login
+        clearSessionState();
+        playerId = null;
+        showScreen('login-screen');
+        els.playerNameInput.focus();
+        showToast(data.message || 'Session expired. Please log in again.', 'warning');
     }
 
     function handleGameList(data) {
@@ -437,8 +466,9 @@
         renderOtherPlayers();
         updateSidebarScoreboard();
         updateStartButton();
+        updateRejoinCodeDisplay();
         clearChat();
-        saveRejoinState();
+        saveSessionState();
     }
 
     function handleGameJoined(data) {
@@ -467,7 +497,8 @@
         updateStartButton();
 
         showToast('Joined game!', 'success');
-        saveRejoinState();
+        updateRejoinCodeDisplay();
+        saveSessionState();
 
         // Initiate video calls to other players in the game
         window.videoManager.joinGame(players);
@@ -505,7 +536,7 @@
 
     function handleLeftGame(data) {
         // We left the game, go back to lobby
-        clearRejoinState();
+        clearSessionState();
         resetGameState();
         showScreen('lobby-screen');
         renderGameList(data.games || []);
@@ -691,6 +722,11 @@
         renderOtherPlayers();
         updateTurnIndicator();
 
+        // Update discard pile (some may have been auto-played onto layout)
+        if (data.discard_pile) {
+            renderDiscardPile(data.discard_pile);
+        }
+
         appendSystemChat('Fantan started! ' + data.first_player + ' goes first');
     }
 
@@ -715,6 +751,16 @@
         updateSidebarScoreboard();
 
         appendSystemChat(data.player + ' played ' + card.rank + (window.gameRenderer.SUIT_SYMBOLS[card.suit] || ''));
+
+        // Show auto-played discards and refresh discard pile display
+        if (data.auto_played && data.auto_played.length > 0) {
+            data.auto_played.forEach(function (ac) {
+                appendSystemChat('Discard auto-played: ' + ac.rank + (window.gameRenderer.SUIT_SYMBOLS[ac.suit] || ''));
+            });
+            if (data.discard_pile) {
+                renderDiscardPile(data.discard_pile);
+            }
+        }
     }
 
     function handlePlayerPassed(data) {
@@ -793,7 +839,7 @@
 
         els.gameOverOverlay.classList.remove('hidden');
         window.gameRenderer.renderGameOver(players, winner);
-        clearRejoinState();
+        clearSessionState();
     }
 
     function handleChatMessage(data) {
@@ -808,6 +854,7 @@
         playerId = data.player_id;
         playerName = data.name;
         currentGameId = data.game_id;
+        rejoinCode = data.rejoin_code || rejoinCode;
 
         var gs = data.game_state || {};
         gameState = gs.phase || 'playing';
@@ -848,6 +895,7 @@
         renderHand();
         updateSidebarScoreboard();
         updateTurnIndicator();
+        updateRejoinCodeDisplay();
         renderDiscardPile(gs.discard_pile || []);
 
         // Restore current trick display
@@ -863,7 +911,7 @@
         }
 
         hidePauseOverlay();
-        saveRejoinState();
+        saveSessionState();
         showToast('Reconnected to game!', 'success');
         appendSystemChat('You reconnected!');
 
@@ -1087,7 +1135,11 @@
     }
 
     function leaveGame() {
-        clearRejoinState();
+        clearSessionState();
+        rejoinCode = null;
+        var rejoinEl = document.getElementById('rejoin-code-display');
+        if (rejoinEl) rejoinEl.classList.add('hidden');
+
         var savedPlayerId = playerId;
         sendMessage({
             action: 'leave_game',
@@ -1202,6 +1254,16 @@
         });
     }
 
+    function updateRejoinCodeDisplay() {
+        var el = document.getElementById('rejoin-code-display');
+        if (el && rejoinCode) {
+            el.textContent = 'Rejoin Code: ' + rejoinCode;
+            el.classList.remove('hidden');
+        } else if (el) {
+            el.classList.add('hidden');
+        }
+    }
+
     function updateSidebarScoreboard() {
         window.gameRenderer.renderSidebarScoreboard(players, els.sidebarScoreboard);
     }
@@ -1262,15 +1324,33 @@
             var waitForOpen = setInterval(function () {
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     clearInterval(waitForOpen);
-                    var loginData = { action: 'login', name: playerName };
-                    var rejoinState = getRejoinState();
-                    if (rejoinState && rejoinState.name === playerName && rejoinState.gameId) {
-                        loginData.rejoin_game_id = rejoinState.gameId;
-                    }
-                    sendMessage(loginData);
+                    // The onopen handler will try token reconnect first,
+                    // or fall back to fresh login with the playerName we just set
                 }
             }, 100);
         });
+
+        // Rejoin with code
+        if (els.rejoinBtn) {
+            els.rejoinBtn.addEventListener('click', function () {
+                var code = els.rejoinCodeInput.value.trim().toUpperCase();
+                if (!code || code.length !== 4) {
+                    showToast('Enter a 4-character rejoin code', 'warning');
+                    return;
+                }
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    connectWebSocket();
+                    var waitForOpen = setInterval(function () {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            clearInterval(waitForOpen);
+                            sendMessage({ action: 'rejoin_code', code: code });
+                        }
+                    }, 100);
+                } else {
+                    sendMessage({ action: 'rejoin_code', code: code });
+                }
+            });
+        }
 
         els.playerNameInput.addEventListener('keydown', function (e) {
             if (e.key === 'Enter') els.loginBtn.click();
@@ -1369,8 +1449,18 @@
     document.addEventListener('DOMContentLoaded', function () {
         cacheDom();
         wireEvents();
-        showScreen('login-screen');
-        els.playerNameInput.focus();
+        migrateLegacyState();
+
+        // If we have a saved session, try auto-reconnect immediately
+        var session = getSessionState();
+        if (session && session.playerId && session.gameId) {
+            playerName = session.name;
+            showScreen('login-screen');
+            connectWebSocket();  // onopen will send reconnect with token
+        } else {
+            showScreen('login-screen');
+            els.playerNameInput.focus();
+        }
     });
 
 })();

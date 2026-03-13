@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import random
+import string
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -23,7 +27,10 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 #  In-memory state
 # ---------------------------------------------------------------------------
 games: dict[str, LettuceGame] = {}
-player_sessions: dict[str, dict[str, Any]] = {}  # player_id -> {id, name, ws, game_id}
+player_sessions: dict[str, dict[str, Any]] = {}  # player_id -> {id, name, ws, game_id, rejoin_code}
+rejoin_codes: dict[str, str] = {}  # code -> player_id (reverse lookup)
+
+STALE_GAME_TIMEOUT = 300  # 5 minutes — delete games where all players disconnected
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +38,47 @@ player_sessions: dict[str, dict[str, Any]] = {}  # player_id -> {id, name, ws, g
 # ---------------------------------------------------------------------------
 
 def get_game_list() -> list[dict[str, Any]]:
+    _cleanup_stale_games()
     return [g.to_lobby_dict() for g in games.values() if g.phase in (GamePhase.LOBBY, GamePhase.PLAYING)]
+
+
+def _cleanup_stale_games() -> None:
+    """Remove GAME_OVER games and games where all players have been disconnected too long."""
+    now = time.time()
+    to_delete = []
+    for gid, game in games.items():
+        # Always remove finished games
+        if game.phase == GamePhase.GAME_OVER:
+            to_delete.append(gid)
+            continue
+        # Remove games where all players disconnected for > timeout
+        if game.phase != GamePhase.LOBBY and all(p.get("disconnected") for p in game.players):
+            stale_since = getattr(game, "_all_disconnected_at", None)
+            if stale_since is None:
+                game._all_disconnected_at = now
+            elif now - stale_since > STALE_GAME_TIMEOUT:
+                to_delete.append(gid)
+        else:
+            game._all_disconnected_at = None  # Reset if someone is connected
+
+    for gid in to_delete:
+        # Clean up player sessions pointing to this game
+        for pid, sess in list(player_sessions.items()):
+            if sess.get("game_id") == gid:
+                sess["game_id"] = None
+                # Clean up rejoin code
+                code = sess.get("rejoin_code")
+                if code and code in rejoin_codes:
+                    del rejoin_codes[code]
+        del games[gid]
+
+
+def _generate_rejoin_code() -> str:
+    """Generate a unique 4-character alphanumeric code."""
+    while True:
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+        if code not in rejoin_codes:
+            return code
 
 
 async def broadcast_game_list() -> None:
@@ -83,6 +130,72 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 
             action = data.get("action", "")
 
+            # ---- RECONNECT (token-based, primary method) ----
+            if action == "reconnect":
+                token = data.get("player_id", "").strip()
+                game_id = data.get("game_id", "").strip()
+
+                if token and token in player_sessions and game_id and game_id in games:
+                    session = player_sessions[token]
+                    game = games[game_id]
+
+                    # Find the player in the game (disconnected or not)
+                    pidx = game.get_player_index(token)
+                    if pidx is not None:
+                        player_id = token
+                        session["ws"] = ws
+                        await game.reconnect_player(player_id, ws)
+
+                        await send_json(ws, {
+                            "action": "rejoined",
+                            "player_id": player_id,
+                            "name": session["name"],
+                            "game_id": game_id,
+                            "rejoin_code": session.get("rejoin_code", ""),
+                            "game_state": game.get_game_state(for_player_id=player_id),
+                        })
+                        continue
+
+                # Token didn't work — fall through to login
+                await send_json(ws, {
+                    "action": "reconnect_failed",
+                    "message": "Session expired. Please log in again.",
+                })
+                continue
+
+            # ---- REJOIN BY CODE (backup method) ----
+            if action == "rejoin_code":
+                code = data.get("code", "").strip().upper()
+
+                if code and code in rejoin_codes:
+                    target_pid = rejoin_codes[code]
+                    if target_pid in player_sessions:
+                        session = player_sessions[target_pid]
+                        game_id = session.get("game_id")
+                        if game_id and game_id in games:
+                            game = games[game_id]
+                            pidx = game.get_player_index(target_pid)
+                            if pidx is not None:
+                                player_id = target_pid
+                                session["ws"] = ws
+                                await game.reconnect_player(player_id, ws)
+
+                                await send_json(ws, {
+                                    "action": "rejoined",
+                                    "player_id": player_id,
+                                    "name": session["name"],
+                                    "game_id": game_id,
+                                    "rejoin_code": code,
+                                    "game_state": game.get_game_state(for_player_id=player_id),
+                                })
+                                continue
+
+                await send_json(ws, {
+                    "action": "error",
+                    "message": "Invalid rejoin code",
+                })
+                continue
+
             # ---- LOGIN ----
             if action == "login":
                 name = data.get("name", "").strip()
@@ -90,42 +203,25 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     await send_json(ws, {"action": "error", "message": "Name is required"})
                     continue
 
-                # Check for rejoin: player reconnecting to an active game
-                rejoin_game_id = data.get("rejoin_game_id")
-                rejoined = False
+                # Fresh login — new player ID and rejoin code
+                player_id = str(uuid.uuid4())
+                code = _generate_rejoin_code()
+                player_sessions[player_id] = {
+                    "id": player_id,
+                    "name": name,
+                    "ws": ws,
+                    "game_id": None,
+                    "rejoin_code": code,
+                }
+                rejoin_codes[code] = player_id
 
-                if rejoin_game_id and rejoin_game_id in games:
-                    game = games[rejoin_game_id]
-                    old_player_id = game.find_disconnected_player(name)
-                    if old_player_id and old_player_id in player_sessions:
-                        # Rejoin existing game
-                        player_id = old_player_id
-                        player_sessions[player_id]["ws"] = ws
-                        await game.reconnect_player(player_id, ws)
-
-                        await send_json(ws, {
-                            "action": "rejoined",
-                            "player_id": player_id,
-                            "name": name,
-                            "game_id": rejoin_game_id,
-                            "game_state": game.get_game_state(for_player_id=player_id),
-                        })
-                        rejoined = True
-
-                if not rejoined:
-                    player_id = str(uuid.uuid4())
-                    player_sessions[player_id] = {
-                        "id": player_id,
-                        "name": name,
-                        "ws": ws,
-                        "game_id": None,
-                    }
-                    await send_json(ws, {
-                        "action": "logged_in",
-                        "player_id": player_id,
-                        "name": name,
-                        "games": get_game_list(),
-                    })
+                await send_json(ws, {
+                    "action": "logged_in",
+                    "player_id": player_id,
+                    "name": name,
+                    "rejoin_code": code,
+                    "games": get_game_list(),
+                })
                 continue
 
             # All further actions require login
@@ -161,8 +257,6 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             # ---- JOIN GAME ----
             elif action == "join_game":
                 game_id = data.get("game_id", "")
-                print(f"[JOIN] Requested game_id: {game_id!r}")
-                print(f"[JOIN] Available games: {list(games.keys())}")
                 game = games.get(game_id)
                 if game is None:
                     await send_json(ws, {"action": "error", "message": "Game not found"})
@@ -197,8 +291,6 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                         for p in game.players
                     )
                     if was_disconnected:
-                        # Reconnect briefly to clear the disconnect state
-                        # so the resume event can be re-evaluated
                         for p in game.players:
                             if p["id"] == player_id:
                                 p["disconnected"] = False
@@ -349,7 +441,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                         })
                     except Exception:
                         pass
-                    # Don't delete session — player may rejoin
+                    # Don't delete session — player may rejoin via token or code
                 else:
                     # Lobby disconnect: remove normally
                     game.remove_player(player_id)
@@ -368,8 +460,16 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                         await broadcast_game_list()
                     except Exception:
                         pass
+                    # Clean up rejoin code and session
+                    code = session.get("rejoin_code")
+                    if code and code in rejoin_codes:
+                        del rejoin_codes[code]
                     del player_sessions[player_id]
             else:
+                # Not in a game — clean up fully
+                code = session.get("rejoin_code")
+                if code and code in rejoin_codes:
+                    del rejoin_codes[code]
                 del player_sessions[player_id]
 
 

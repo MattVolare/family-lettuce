@@ -28,6 +28,7 @@ window.gameRenderer = (function () {
     };
 
     const RANK_ORDER = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+    const FANTAN_RANK_ORDER = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 
     const ROUND_INFO = {
         tricks: { name: 'Tricks', icon: '\u{1F0CF}', desc: 'Avoid taking tricks (+5 each)', color: '#7e57c2' },
@@ -335,7 +336,7 @@ window.gameRenderer = (function () {
 
             const suitCards = layout[suit] || [];
 
-            RANK_ORDER.forEach(function (rank, i) {
+            FANTAN_RANK_ORDER.forEach(function (rank, i) {
                 const cell = document.createElement('div');
                 cell.className = 'fantan-cell';
 
@@ -887,6 +888,7 @@ window.gameRenderer = (function () {
         SUIT_SYMBOLS: SUIT_SYMBOLS,
         SUIT_COLORS: SUIT_COLORS,
         RANK_ORDER: RANK_ORDER,
+        FANTAN_RANK_ORDER: FANTAN_RANK_ORDER,
         ROUND_INFO: ROUND_INFO
     };
 })();

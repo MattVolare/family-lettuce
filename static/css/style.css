@@ -237,6 +237,39 @@ h1, h2, h3, h4, h5, h6 {
     padding: 14px 24px;
 }
 
+.login-divider {
+    text-align: center;
+    color: var(--text-light);
+    font-size: 13px;
+    margin: 12px 0 4px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+.rejoin-form .text-input {
+    font-size: 20px;
+    font-family: 'Nunito', sans-serif;
+}
+
+.rejoin-form .btn {
+    font-size: 15px;
+    padding: 12px 24px;
+}
+
+/* Rejoin code badge in game */
+.rejoin-code-badge {
+    display: inline-block;
+    background: var(--bg-cream-dark);
+    color: var(--text-medium);
+    font-family: 'Nunito', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    border: 1px dashed var(--wood-light);
+}
+
 /* ============================================
    LOBBY SCREEN
    ============================================ */

@@ -24,6 +24,11 @@
                 <input type="text" id="player-name-input" class="text-input" placeholder="Your name" maxlength="20" autocomplete="off">
                 <button id="login-btn" class="btn btn-primary">Play</button>
             </div>
+            <div class="login-divider">or</div>
+            <div class="login-form rejoin-form">
+                <input type="text" id="rejoin-code-input" class="text-input" placeholder="Rejoin code (e.g. A7X2)" maxlength="4" autocomplete="off" style="text-transform: uppercase; letter-spacing: 4px; text-align: center; font-weight: 700;">
+                <button id="rejoin-btn" class="btn btn-outline">Rejoin Game</button>
+            </div>
         </div>
     </div>
 
@@ -116,6 +121,7 @@
                         <div class="your-details">
                             <span class="your-name" id="your-name-display"></span>
                             <span class="your-score" id="your-score-display">Score: 0</span>
+                            <span class="rejoin-code-badge hidden" id="rejoin-code-display"></span>
                         </div>
                     </div>
                     <div class="your-hand" id="your-hand"></div>

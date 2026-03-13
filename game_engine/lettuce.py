@@ -295,8 +295,13 @@ class LettuceGame:
         self.discard_pile = discard
         self.cards_per_player = len(hands[0]) if hands else 0
 
-        for i, player in enumerate(self.players):
-            player["hand"] = sorted(hands[i], key=lambda c: (c.suit, c.value))
+        # Sort hands — Fantan uses aces-low ordering
+        if round_type == RoundType.FANTAN:
+            for i, player in enumerate(self.players):
+                player["hand"] = sorted(hands[i], key=lambda c: (c.suit, self._fantan_value(c)))
+        else:
+            for i, player in enumerate(self.players):
+                player["hand"] = sorted(hands[i], key=lambda c: (c.suit, c.value))
 
         # Auto-select round based on fixed sequence
         self.current_round_type = round_type
@@ -675,10 +680,13 @@ class LettuceGame:
         self.fantan_consecutive_passes = 0
 
         # Place any 7s from discard pile into layout
-        for card in self.discard_pile:
+        for card in list(self.discard_pile):
             if card.rank == "7":
                 self.layout[card.suit] = {"low": 7, "high": 7}
                 self.sevens_placed.add(card.suit)
+
+        # Auto-play any discards adjacent to placed 7s (chain reaction)
+        self._auto_play_discards()
 
         # Determine who plays first: holder of 7 of clubs, then spades, hearts, diamonds
         first_player = None
@@ -705,6 +713,7 @@ class LettuceGame:
             "first_player": self.players[first_player]["name"],
             "first_player_index": first_player,
             "current_player_index": first_player,
+            "discard_pile": [c.to_dict() for c in self.discard_pile],
         })
 
         await self._broadcast_turn()
@@ -720,6 +729,13 @@ class LettuceGame:
     def _layout_to_dict(self) -> dict[str, dict[str, int]]:
         return {suit: dict(bounds) for suit, bounds in self.layout.items()}
 
+    @staticmethod
+    def _fantan_value(card: Card) -> int:
+        """In Fantan, Aces are low (value 1). All others keep normal value."""
+        if card.rank == "A":
+            return 1
+        return card.value
+
     def get_fantan_playable(self, player_index: int) -> list[Card]:
         hand = self.players[player_index]["hand"]
         playable: list[Card] = []
@@ -729,16 +745,41 @@ class LettuceGame:
                 playable.append(card)
                 continue
 
+            fv = self._fantan_value(card)
             if card.suit in self.layout:
                 bounds = self.layout[card.suit]
                 low = bounds["low"]
                 high = bounds["high"]
-                if card.value == low - 1 and card.value >= 2:
+                if fv == low - 1 and fv >= 1:
                     playable.append(card)
-                elif card.value == high + 1 and card.value <= 14:
+                elif fv == high + 1 and fv <= 13:
                     playable.append(card)
 
         return playable
+
+    def _auto_play_discards(self) -> list[Card]:
+        """Auto-place any discards that are now playable on the layout. Returns placed cards."""
+        placed: list[Card] = []
+        changed = True
+        while changed:
+            changed = False
+            for card in list(self.discard_pile):
+                if card.rank == "7":
+                    continue  # 7s handled at setup
+                fv = self._fantan_value(card)
+                if card.suit in self.layout:
+                    bounds = self.layout[card.suit]
+                    if fv == bounds["low"] - 1 and fv >= 1:
+                        bounds["low"] = fv
+                        self.discard_pile.remove(card)
+                        placed.append(card)
+                        changed = True
+                    elif fv == bounds["high"] + 1 and fv <= 13:
+                        bounds["high"] = fv
+                        self.discard_pile.remove(card)
+                        placed.append(card)
+                        changed = True
+        return placed
 
     async def play_fantan_card(self, player_id: str, suit: str, rank: str) -> None:
         idx = self.get_player_index(player_id)
@@ -768,11 +809,15 @@ class LettuceGame:
             self.layout[card.suit] = {"low": 7, "high": 7}
             self.sevens_placed.add(card.suit)
         elif card.suit in self.layout:
+            fv = self._fantan_value(card)
             bounds = self.layout[card.suit]
-            if card.value == bounds["low"] - 1:
-                bounds["low"] = card.value
-            elif card.value == bounds["high"] + 1:
-                bounds["high"] = card.value
+            if fv == bounds["low"] - 1:
+                bounds["low"] = fv
+            elif fv == bounds["high"] + 1:
+                bounds["high"] = fv
+
+        # Auto-play any discards that are now adjacent
+        auto_placed = self._auto_play_discards()
 
         await self.broadcast({
             "action": "fantan_card_played",
@@ -781,6 +826,8 @@ class LettuceGame:
             "player_index": idx,
             "card": card.to_dict(),
             "layout": self._layout_to_dict(),
+            "auto_played": [c.to_dict() for c in auto_placed],
+            "discard_pile": [c.to_dict() for c in self.discard_pile],
         })
 
         # Check if player is out of cards
