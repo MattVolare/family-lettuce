@@ -2044,6 +2044,10 @@ h1, h2, h3, h4, h5, h6 {
     }
 
     /* Fantan */
+    .fantan-area {
+        margin-top: 32px;
+    }
+
     .fantan-cell {
         width: 28px;
         height: 40px;
